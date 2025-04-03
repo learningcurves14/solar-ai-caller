@@ -1,33 +1,33 @@
+const WebSocket = require("ws");
 const express = require("express");
-const { twiml } = require("twilio");
-require("dotenv").config();
+const http = require("http");
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
 const PORT = process.env.PORT || 3000;
 
-app.use(express.urlencoded({ extended: false }));
+// Handle WebSocket connections
+wss.on("connection", (ws) => {
+  console.log("🟢 New WebSocket connection");
 
-// ✅ Basic voice route
-app.post("/voice", (req, res) => {
-  const twimlResponse = new twiml.VoiceResponse();
+  ws.on("message", (message) => {
+    console.log("📨 Received:", message.toString());
 
-  twimlResponse.say(
-    {
-      voice: "woman",
-      language: "en-US",
-    },
-    "Hey there! This is your solar A I assistant. We'll be speaking with you shortly!"
-  );
+    // Echo back for now (you'll replace this with GPT later)
+    ws.send(`You said: ${message}`);
+  });
 
-  res.type("text/xml");
-  res.send(twimlResponse.toString());
+  ws.on("close", () => {
+    console.log("🔴 WebSocket connection closed");
+  });
 });
 
-// ✅ Confirm server
 app.get("/", (req, res) => {
-  res.send("✅ AI call server is running!");
+  res.send("✅ WebSocket server is live!");
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
 });
