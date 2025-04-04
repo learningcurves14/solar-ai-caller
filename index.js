@@ -1,9 +1,6 @@
-// index.js
 require("dotenv").config();
 const express = require("express");
 const { twiml: { VoiceResponse } } = require("twilio");
-const axios = require("axios");
-const WebSocket = require("ws");
 const bodyParser = require("body-parser");
 
 const app = express();
@@ -11,26 +8,14 @@ const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// ✅ Serve Twilio webhook
+// ✅ Twilio webhook route for incoming calls
 app.post("/voice", (req, res) => {
   const response = new VoiceResponse();
 
-  // Start Twilio <Stream> to send audio to GPT agent
-  const gather = response.gather({
-    input: "speech",
-    action: "/hangup",
-    method: "POST"
+  // Start Twilio <Stream> for real-time audio
+  response.connect().stream({
+    url: process.env.WEBSOCKET_URL,
   });
-
-  gather.say(
-    {
-      voice: "woman",
-      language: "en-US",
-    },
-    "Hi there! This is Rachel. Thanks for calling. What can I help you with today?"
-  );
-
-  response.connect().stream({ url: process.env.WEBSOCKET_URL });
 
   res.type("text/xml").send(response.toString());
 });
@@ -43,11 +28,11 @@ app.post("/hangup", (req, res) => {
   res.type("text/xml").send(response.toString());
 });
 
-// ✅ Confirm server running
+// ✅ Root status check
 app.get("/", (req, res) => {
-  res.send("✅ AI call server is running and streaming to Rachel!");
+  res.send("✅ Rachel's AI call server is live and ready to stream!");
 });
 
 app.listen(PORT, () => {
-  console.log(`\u2705 Server running on http://localhost:${PORT}`);
+  console.log(`✅ Server running on http://localhost:${PORT}`);
 });
