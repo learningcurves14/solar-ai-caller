@@ -1,33 +1,39 @@
-const WebSocket = require("ws");
 const express = require("express");
-const http = require("http");
+const { twiml } = require("twilio");
+const axios = require("axios");
+require("dotenv").config();
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
 const PORT = process.env.PORT || 3000;
 
-// Handle WebSocket connections
-wss.on("connection", (ws) => {
-  console.log("🟢 New WebSocket connection");
+app.use(express.urlencoded({ extended: false }));
 
-  ws.on("message", (message) => {
-    console.log("📨 Received:", message.toString());
+// ✅ Handle incoming calls
+app.post("/voice", (req, res) => {
+  const response = new twiml.VoiceResponse();
 
-    // Echo back for now (you'll replace this with GPT later)
-    ws.send(`You said: ${message}`);
+  const stream = response.connect();
+  stream.stream({
+    url: "wss://solar-ai-ws.up.railway.app",
   });
 
-  ws.on("close", () => {
-    console.log("🔴 WebSocket connection closed");
-  });
+  response.say(
+    {
+      voice: "woman",
+      language: "en-US",
+    },
+    "Hi there! This is Rachel. Thanks for calling. What can I help you with today?"
+  );
+
+  res.type("text/xml");
+  res.send(response.toString());
 });
 
+// ✅ Confirm server is live
 app.get("/", (req, res) => {
-  res.send("✅ WebSocket server is live!");
+  res.send("✅ AI call server is running!");
 });
 
-server.listen(PORT, () => {
-  console.log(`✅ Server listening on port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`✅ Server running on http://localhost:${PORT}`);
 });
