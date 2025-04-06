@@ -1,4 +1,4 @@
-// voice-stream.js
+// voice-stream.js (Debugging Enhanced)
 require("dotenv").config();
 const WebSocket = require("ws");
 const axios = require("axios");
@@ -10,13 +10,12 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = process.env.PORT || 3000;
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
 const wss = new WebSocket.Server({ port: PORT });
+
 console.log(`🧠 Rachel's merged server is live on wss://solar-ai-ws-production.up.railway.app and port ${PORT}`);
 
 wss.on("connection", (ws) => {
   console.log("🔗 Twilio call connected to Rachel's stream");
-
   let audioBuffer = [];
 
   ws.on("message", async (message) => {
@@ -33,23 +32,21 @@ wss.on("connection", (ws) => {
 
     if (parsed.event === "stop") {
       console.log("🔴 Stream stopped for call:", parsed.streamSid);
-
-      // Save full audio buffer to a WAV file (for Whisper)
       const fullAudio = Buffer.concat(audioBuffer);
-      fs.writeFileSync("input.wav", fullAudio);
-      console.log("🎙️ Saved audio to input.wav");
+      const inputPath = "input.wav";
 
       try {
-        // 🔹 Whisper: Transcribe
+        fs.writeFileSync(inputPath, fullAudio);
+        console.log("🎙️ Saved audio to input.wav");
+
         const whisperResponse = await openai.audio.transcriptions.create({
-          file: fs.createReadStream("input.wav"),
+          file: fs.createReadStream(inputPath),
           model: "whisper-1"
         });
 
         const transcript = whisperResponse.text;
         console.log("📝 Transcription:", transcript);
 
-        // 🔹 GPT: Generate response
         const chat = await openai.chat.completions.create({
           model: "gpt-4",
           messages: [
@@ -61,10 +58,9 @@ wss.on("connection", (ws) => {
         const reply = chat.choices[0].message.content;
         console.log("💬 GPT Response:", reply);
 
-        // 🔹 ElevenLabs: Generate voice from response
         const voiceResponse = await axios({
           method: "POST",
-          url: "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM", // Rachel's voice
+          url: "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
           headers: {
             "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json",
@@ -84,15 +80,13 @@ wss.on("connection", (ws) => {
 
         writer.on("finish", () => {
           console.log("✅ AI reply generated in output.mp3");
-          // This is where streaming the audio back to Twilio would go in the future
         });
 
         writer.on("error", (err) => {
           console.error("❌ Error writing output.mp3:", err);
         });
-
       } catch (error) {
-        console.error("❌ Error in processing pipeline:", error.response?.data || error.message);
+        console.error("❌ Pipeline failed:", error.response?.data || error.message);
       }
     }
   });
