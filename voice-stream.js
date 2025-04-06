@@ -1,106 +1,103 @@
+// voice-stream.js
 require("dotenv").config();
 const WebSocket = require("ws");
 const axios = require("axios");
+const fs = require("fs");
 const { OpenAI } = require("openai");
-const { Readable } = require("stream");
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const PORT = process.env.PORT || 3000;
 
-const wss = new WebSocket.Server({ port: 5005 });
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-console.log("🧠 Rachel’s brain is online and listening on ws://localhost:5005");
+const wss = new WebSocket.Server({ port: PORT });
+console.log(`🧠 Rachel's merged server is live on wss://solar-ai-ws-production.up.railway.app and port ${PORT}`);
 
 wss.on("connection", (ws) => {
-  console.log("🔗 Twilio call connected");
+  console.log("🔗 Twilio call connected to Rachel's stream");
 
-  let audioBuffer = Buffer.from([]);
+  let audioBuffer = [];
 
   ws.on("message", async (message) => {
-    const data = JSON.parse(message);
+    const parsed = JSON.parse(message);
 
-    if (data.event === "start") {
-      console.log("🟢 Stream started");
+    if (parsed.event === "start") {
+      console.log("🟢 Stream started for call:", parsed.streamSid);
     }
 
-    if (data.event === "media") {
-      const audio = Buffer.from(data.media.payload, "base64");
-      audioBuffer = Buffer.concat([audioBuffer, audio]);
+    if (parsed.event === "media") {
+      const chunk = Buffer.from(parsed.media.payload, "base64");
+      audioBuffer.push(chunk);
     }
 
-    if (data.event === "stop") {
-      console.log("🔴 Stream stopped — transcribing...");
+    if (parsed.event === "stop") {
+      console.log("🔴 Stream stopped for call:", parsed.streamSid);
+
+      // Save full audio buffer to a WAV file (for Whisper)
+      const fullAudio = Buffer.concat(audioBuffer);
+      fs.writeFileSync("input.wav", fullAudio);
+      console.log("🎙️ Saved audio to input.wav");
 
       try {
-        // 🔊 Convert Buffer to readable stream for Whisper
-        const stream = Readable.from(audioBuffer);
-        const transcription = await openai.audio.transcriptions.create({
-          file: stream,
-          model: "whisper-1",
+        // 🔹 Whisper: Transcribe
+        const whisperResponse = await openai.audio.transcriptions.create({
+          file: fs.createReadStream("input.wav"),
+          model: "whisper-1"
         });
 
-        const userText = transcription.text;
-        console.log("💬 User said:", userText);
+        const transcript = whisperResponse.text;
+        console.log("📝 Transcription:", transcript);
 
-        // 🧠 GPT-4 response
-        const chatResponse = await openai.chat.completions.create({
+        // 🔹 GPT: Generate response
+        const chat = await openai.chat.completions.create({
           model: "gpt-4",
           messages: [
-            {
-              role: "system",
-              content: "You are Rachel, a friendly AI voice assistant who speaks clearly and helpfully.",
-            },
-            {
-              role: "user",
-              content: userText,
-            },
-          ],
+            { role: "system", content: "You're Rachel, a friendly AI helping homeowners explore solar options." },
+            { role: "user", content: transcript }
+          ]
         });
 
-        const rachelReply = chatResponse.choices[0].message.content;
-        console.log("🧠 Rachel says:", rachelReply);
+        const reply = chat.choices[0].message.content;
+        console.log("💬 GPT Response:", reply);
 
-        // 🗣️ Send to ElevenLabs for voice generation
-        const audioStream = await axios({
+        // 🔹 ElevenLabs: Generate voice from response
+        const voiceResponse = await axios({
           method: "POST",
-          url: "https://api.elevenlabs.io/v1/text-to-speech/" + process.env.ELEVENLABS_VOICE_ID,
+          url: "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM", // Rachel's voice
           headers: {
-            "xi-api-key": process.env.ELEVENLABS_API_KEY,
+            "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json",
+            "Accept": "audio/mpeg"
           },
           data: {
-            text: rachelReply,
+            text: reply,
             model_id: "eleven_monolingual_v1",
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.75,
-            },
+            voice_settings: { stability: 0.4, similarity_boost: 0.8 }
           },
-          responseType: "arraybuffer",
+          responseType: "stream"
         });
 
-        const responseAudio = Buffer.from(audioStream.data);
-        ws.send(
-          JSON.stringify({
-            event: "media",
-            media: {
-              payload: responseAudio.toString("base64"),
-            },
-          })
-        );
+        const outputPath = "output.mp3";
+        const writer = fs.createWriteStream(outputPath);
+        voiceResponse.data.pipe(writer);
 
-        console.log("📤 Reply sent back to Twilio");
+        writer.on("finish", () => {
+          console.log("✅ AI reply generated in output.mp3");
+          // This is where streaming the audio back to Twilio would go in the future
+        });
 
-        // 🛑 Close stream
-        ws.send(JSON.stringify({ event: "stop" }));
-        ws.close();
-      } catch (err) {
-        console.error("❌ Error in pipeline:", err.message);
-        ws.close();
+        writer.on("error", (err) => {
+          console.error("❌ Error writing output.mp3:", err);
+        });
+
+      } catch (error) {
+        console.error("❌ Error in processing pipeline:", error.response?.data || error.message);
       }
     }
   });
 
   ws.on("close", () => {
-    console.log("❌ Disconnected from Twilio");
+    console.log("❌ Call disconnected from Rachel's stream");
   });
 });
