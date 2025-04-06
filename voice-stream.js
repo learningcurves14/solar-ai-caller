@@ -1,4 +1,4 @@
-// voice-stream.js (Debugging Enhanced)
+// voice-stream.js
 require("dotenv").config();
 const WebSocket = require("ws");
 const axios = require("axios");
@@ -10,12 +10,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = process.env.PORT || 3000;
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`🧠 Rachel's merged server is live on wss://solar-ai-ws-production.up.railway.app and port ${PORT}`);
+const wss = new WebSocket.Server({ port: PORT });
+console.log(`🧠 Rachel's voice stream server is live on wss://solar-ai-ws-production.up.railway.app and port ${PORT}`);
 
 wss.on("connection", (ws) => {
   console.log("🔗 Twilio call connected to Rachel's stream");
+
   let audioBuffer = [];
 
   ws.on("message", async (message) => {
@@ -32,32 +33,35 @@ wss.on("connection", (ws) => {
 
     if (parsed.event === "stop") {
       console.log("🔴 Stream stopped for call:", parsed.streamSid);
+
+      // Save full audio buffer to WAV
       const fullAudio = Buffer.concat(audioBuffer);
-      const inputPath = "input.wav";
+      fs.writeFileSync("input.wav", fullAudio);
+      console.log("🎙️ Saved audio to input.wav");
 
       try {
-        fs.writeFileSync(inputPath, fullAudio);
-        console.log("🎙️ Saved audio to input.wav");
-
+        // 🔊 Transcribe with Whisper
         const whisperResponse = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(inputPath),
+          file: fs.createReadStream("input.wav"),
           model: "whisper-1"
         });
 
         const transcript = whisperResponse.text;
         console.log("📝 Transcription:", transcript);
 
+        // 💬 GPT-4 response
         const chat = await openai.chat.completions.create({
           model: "gpt-4",
           messages: [
-            { role: "system", content: "You're Rachel, a friendly AI helping homeowners explore solar options." },
+            { role: "system", content: "You're Rachel, a friendly AI helping homeowners explore solar options. Keep responses brief and natural." },
             { role: "user", content: transcript }
           ]
         });
 
         const reply = chat.choices[0].message.content;
-        console.log("💬 GPT Response:", reply);
+        console.log("💬 GPT Reply:", reply);
 
+        // 🗣 ElevenLabs TTS
         const voiceResponse = await axios({
           method: "POST",
           url: "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
@@ -79,14 +83,16 @@ wss.on("connection", (ws) => {
         voiceResponse.data.pipe(writer);
 
         writer.on("finish", () => {
-          console.log("✅ AI reply generated in output.mp3");
+          console.log("✅ AI reply saved as output.mp3");
+          // 🔁 Future: stream MP3 back to Twilio
         });
 
         writer.on("error", (err) => {
           console.error("❌ Error writing output.mp3:", err);
         });
-      } catch (error) {
-        console.error("❌ Pipeline failed:", error.response?.data || error.message);
+
+      } catch (err) {
+        console.error("❌ Pipeline error:", err.response?.data || err.message);
       }
     }
   });
